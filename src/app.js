@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
+const { missionInput } = require('./missions');
 
 const deviceInput = z.object({
   deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).refine((id) => id !== 'backend'),
@@ -8,7 +9,7 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(100)).max(50),
 }).strict();
 
-function createApp({ devices, jwtSecret }) {
+function createApp({ devices, missions, jwtSecret }) {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
@@ -42,6 +43,24 @@ function createApp({ devices, jwtSecret }) {
   app.get('/api/v1/devices/:id/events', async (req, res, next) => {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid device ID' });
     try { res.json(await devices.events(req.params.id)); } catch (err) { next(err); }
+  });
+  app.post('/api/v1/missions', async (req, res, next) => {
+    const parsed = missionInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid mission' });
+    try { return res.status(201).json(await missions.create(parsed.data, req.user)); } catch (err) { return next(err); }
+  });
+  app.get('/api/v1/missions/:id', async (req, res, next) => {
+    try {
+      const mission = await missions.get(req.params.id);
+      return mission ? res.json(mission) : res.status(404).json({ error: 'Mission not found' });
+    } catch (err) { return next(err); }
+  });
+  app.post('/api/v1/missions/:id/cancel', async (req, res, next) => {
+    try {
+      const mission = await missions.cancelDraft(req.params.id);
+      if (mission) return res.json(mission);
+      return res.status(await missions.get(req.params.id) ? 409 : 404).json({ error: 'Mission cannot be cancelled' });
+    } catch (err) { return next(err); }
   });
   app.use((err, _req, res, _next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });

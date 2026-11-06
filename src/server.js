@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { createApp } = require('./app');
 const mqtt = require('mqtt');
 const { ingestStatus } = require('./ingestion');
+const { createMissionModel, createMissionStore } = require('./missions');
 
 async function main() {
   const { MONGODB_URI, JWT_SECRET } = process.env;
@@ -31,6 +32,9 @@ async function main() {
   eventSchema.index({ deviceId: 1, messageId: 1 }, { unique: true });
   const Event = mongoose.model('Event', eventSchema);
   await Event.init();
+  const Mission = createMissionModel(mongoose);
+  await Mission.init();
+  const missions = createMissionStore(Mission);
   const devices = {
     create: async (input) => (await Device.create(input)).toObject(),
     list: () => Device.find().lean(),
@@ -63,7 +67,7 @@ async function main() {
       }).catch((err) => console.error('Status ingestion failed:', err.message));
     });
   }
-  const server = createApp({ devices, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
+  const server = createApp({ devices, missions, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { if (broker) broker.end(true); mongoose.disconnect().then(() => process.exit(0)); }));
 }
 
