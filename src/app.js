@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 
 const deviceInput = z.object({
-  deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
+  deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).refine((id) => id !== 'backend'),
   name: z.string().trim().min(1).max(100),
   capabilities: z.array(z.string().trim().min(1).max(100)).max(50),
 }).strict();

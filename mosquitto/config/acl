@@ -1,0 +1,7 @@
+user backend
+topic readwrite #
+
+pattern write devices/%u/status
+pattern write devices/%u/events
+pattern write devices/%u/ack
+pattern read devices/%u/commands

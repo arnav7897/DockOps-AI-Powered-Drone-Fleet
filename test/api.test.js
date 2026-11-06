@@ -26,6 +26,7 @@ test('device registry validates input and enforces roles', async (t) => {
   assert.equal((await request('/devices', { bearer: token('admin', { expiresIn: -1 }) })).status, 401);
   assert.equal((await request('/devices', { method: 'POST', role: 'operator', body: {} })).status, 403);
   assert.equal((await request('/devices', { method: 'POST', role: 'admin', body: { deviceId: '../bad', name: 'x', capabilities: [] } })).status, 400);
+  assert.equal((await request('/devices', { method: 'POST', role: 'admin', body: { deviceId: 'backend', name: 'x', capabilities: [] } })).status, 400);
   const input = { deviceId: 'drone-1', name: 'Drone', capabilities: ['survey'] };
   assert.equal((await request('/devices', { method: 'POST', role: 'admin', body: input })).status, 201);
   assert.equal((await request('/devices', { method: 'POST', role: 'admin', body: input })).status, 409);
