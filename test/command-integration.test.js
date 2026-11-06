@@ -17,7 +17,7 @@ test('command transitions, acknowledgements and uncertain timeout preserve reser
     const broker = { connected: true, readyForCommands: true, async publishAsync(topic, raw) { sent.push({ topic, raw }); } };
     const commands = createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker });
     const simulator = createSimulatorCommands('d1');
-    const user = { role: 'operator', sub: 'op', exp: Math.floor(Date.now() / 1000) + 60 };
+    const user = { role: 'operator', sub: 'op', exp: Math.floor(Date.now() / 1000) + 15 };
     await Device.create({ deviceId: 'd1', connectivityState: 'online', operationalState: 'idle', capabilities: ['survey'], lastSeenAt: new Date() });
     const mission = await missions.create({ type: 'survey', parameters: {} }, user);
     await missions.assign(mission.missionId, 'd1');
@@ -26,6 +26,7 @@ test('command transitions, acknowledgements and uncertain timeout preserve reser
     async function action(name) {
       const command = await commands.dispatch(mission.missionId, name, user);
       assert.ok(command);
+      assert.ok(new Date(command.expiresAt).getTime() <= user.exp * 1000);
       assert.equal((await missions.get(mission.missionId)).pendingCommandId, command.commandId);
       const ack = simulator.handle(Buffer.from(sent.at(-1).raw));
       assert.ok(ack);
@@ -51,6 +52,16 @@ test('command transitions, acknowledgements and uncertain timeout preserve reser
     await action('resume');
     await action('complete');
     assert.equal((await missions.get(mission.missionId)).status, 'completed');
+    assert.equal((await Device.findOne({ deviceId: 'd1' }).lean()).activeMissionId, null);
+    const cancelled = await missions.create({ type: 'survey', parameters: {} }, user);
+    await missions.assign(cancelled.missionId, 'd1');
+    for (const next of ['start', 'cancel']) {
+      const command = await commands.dispatch(cancelled.missionId, next, user);
+      assert.ok(command);
+      const ack = simulator.handle(Buffer.from(sent.at(-1).raw));
+      assert.equal(await commands.acknowledge('devices/d1/ack', Buffer.from(JSON.stringify(ack))), true);
+    }
+    assert.equal((await missions.get(cancelled.missionId)).status, 'cancelled');
     assert.equal((await Device.findOne({ deviceId: 'd1' }).lean()).activeMissionId, null);
     const second = await missions.create({ type: 'survey', parameters: {} }, user);
     await missions.assign(second.missionId, 'd1');

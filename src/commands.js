@@ -55,7 +55,7 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
       if (updated.modifiedCount !== 1) throw new Error('Mission changed during dispatch');
       const [command] = await Command.create([{ commandId, correlationId: randomUUID(), missionId, deviceId: device.deviceId,
         action, command: policy.command, fromStatus: mission.status, toStatus: policy.to, status: 'pending',
-        issuedAt: now, expiresAt: new Date(now.getTime() + 30000), requestedBy: user.sub }], { session });
+        issuedAt: now, expiresAt: new Date(Math.min(now.getTime() + 30000, user.exp * 1000)), requestedBy: user.sub }], { session });
       return command.toObject();
     });
   }
@@ -79,7 +79,8 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
       return null;
     }
     const envelope = { schemaVersion: 1, commandId: command.commandId, correlationId: command.correlationId,
-      missionId, command: command.command, issuedAt: command.issuedAt.toISOString(), expiresAt: command.expiresAt.toISOString(), payload: {} };
+      missionId, command: command.command, issuedAt: command.issuedAt.toISOString(), expiresAt: command.expiresAt.toISOString(),
+      payload: action === 'start' ? { type: mission.type, parameters: mission.parameters ?? {} } : {} };
     try {
       // Do not queue requests in memory when disconnected; uncertain delivery keeps the reservation.
       let timeout;

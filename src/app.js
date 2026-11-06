@@ -9,7 +9,7 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(100)).max(50),
 }).strict();
 
-function createApp({ devices, missions, jwtSecret }) {
+function createApp({ devices, missions, commands, jwtSecret }) {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
@@ -68,7 +68,25 @@ function createApp({ devices, missions, jwtSecret }) {
     try {
       const mission = await missions.cancel(req.params.id);
       if (mission) return res.json(mission);
+      if (commands) {
+        const command = await commands.dispatch(req.params.id, 'cancel', req.user);
+        if (command) return res.status(202).json(command);
+      }
       return res.status(await missions.get(req.params.id) ? 409 : 404).json({ error: 'Mission cannot be cancelled' });
+    } catch (err) { return next(err); }
+  });
+  app.post('/api/v1/missions/:id/:action', async (req, res, next) => {
+    if (!['start', 'pause', 'resume', 'complete'].includes(req.params.action)) return res.status(404).json({ error: 'Not found' });
+    try {
+      const command = commands && await commands.dispatch(req.params.id, req.params.action, req.user);
+      if (command) return res.status(202).json(command);
+      return res.status(await missions.get(req.params.id) ? 409 : 404).json({ error: 'Mission action unavailable' });
+    } catch (err) { return next(err); }
+  });
+  app.get('/api/v1/commands/:id', async (req, res, next) => {
+    try {
+      const command = commands && await commands.get(req.params.id);
+      return command ? res.json(command) : res.status(404).json({ error: 'Command not found' });
     } catch (err) { return next(err); }
   });
   app.use((err, _req, res, _next) => {

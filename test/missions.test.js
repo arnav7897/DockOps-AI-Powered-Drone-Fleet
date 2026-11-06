@@ -13,7 +13,9 @@ test('authenticated operators create, read and cancel draft missions', async (t)
     async cancel(id) { if (id !== 'm1' || !['created', 'assigned'].includes(record?.status)) return null; record.status = 'cancelled'; return record; },
     async assign(id, deviceId) { if (id !== 'm1' || record?.status !== 'created' || deviceId !== 'eligible') return null; record.status = 'assigned'; record.assignedDeviceId = deviceId; return record; },
   };
-  const server = createApp({ devices: {}, missions, jwtSecret: secret }).listen(0);
+  const sent = [];
+  const commands = { async dispatch(id, action, user) { if (action === 'cancel') return null; sent.push({ id, action, user: user.sub }); return { commandId: 'c1', status: 'pending' }; }, async get(id) { return id === 'c1' ? { commandId: id } : null; } };
+  const server = createApp({ devices: {}, missions, commands, jwtSecret: secret }).listen(0);
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}/api/v1/missions`;
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
@@ -27,6 +29,11 @@ test('authenticated operators create, read and cancel draft missions', async (t)
   assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'unavailable' }) })).status, 409);
   assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'eligible' }) })).status, 200);
   assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'eligible' }) })).status, 409);
+  assert.equal((await fetch(`${base}/m1/start`, { method: 'POST' })).status, 401);
+  assert.equal(sent.length, 0);
+  assert.equal((await fetch(`${base}/m1/start`, { method: 'POST', headers })).status, 202);
+  assert.deepEqual(sent[0], { id: 'm1', action: 'start', user: 'operator' });
+  assert.equal((await fetch(`${base}/m1/arbitrary`, { method: 'POST', headers })).status, 404);
   assert.equal((await fetch(`${base}/m1/cancel`, { method: 'POST', headers })).status, 200);
   assert.equal((await fetch(`${base}/m1/cancel`, { method: 'POST', headers })).status, 409);
 });

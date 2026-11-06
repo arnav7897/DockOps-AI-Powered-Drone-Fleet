@@ -3,6 +3,7 @@ const { createApp } = require('./app');
 const mqtt = require('mqtt');
 const { ingestStatus } = require('./ingestion');
 const { createMissionModel, createMissionStore } = require('./missions');
+const { createCommandModel, createCommandService } = require('./commands');
 
 async function main() {
   const { MONGODB_URI, JWT_SECRET } = process.env;
@@ -35,18 +36,30 @@ async function main() {
   const Mission = createMissionModel(mongoose);
   await Mission.init();
   const missions = createMissionStore(Mission, Device, mongoose.connection);
+  const Command = createCommandModel(mongoose);
+  await Command.init();
   const devices = {
     create: async (input) => (await Device.create(input)).toObject(),
     list: () => Device.find().lean(),
     events: (deviceId) => Event.find({ deviceId }).sort({ timestamp: -1 }).limit(100).lean(),
   };
   let broker;
+  let commands;
   if (process.env.MQTT_URL) {
     if (!process.env.MQTT_USERNAME || !process.env.MQTT_PASSWORD) throw new Error('MQTT credentials required');
     broker = mqtt.connect(process.env.MQTT_URL, { username: process.env.MQTT_USERNAME, password: process.env.MQTT_PASSWORD });
-    broker.on('connect', () => broker.subscribe('devices/+/status', { qos: 1 }, (err) => { if (err) console.error('MQTT subscribe failed', err.message); }));
+    commands = createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker });
+    broker.on('connect', () => broker.subscribe(['devices/+/status', 'devices/+/ack'], { qos: 1 }, (err, grants) => {
+      broker.readyForCommands = !err && grants?.length === 2 && grants.every((grant) => grant.qos !== 128);
+      if (!broker.readyForCommands) console.error('MQTT subscribe failed', err?.message || 'subscription rejected');
+    }));
+    broker.on('close', () => { broker.readyForCommands = false; });
     broker.on('error', (err) => console.error('MQTT error:', err.message));
     broker.on('message', (topic, payload) => {
+      if (topic.endsWith('/ack')) {
+        commands.acknowledge(topic, payload).catch((err) => console.error('Acknowledgement failed:', err.message));
+        return;
+      }
       ingestStatus(topic, payload, {
         async recordStatus(message) {
           const device = await Device.exists({ deviceId: message.deviceId });
@@ -67,8 +80,11 @@ async function main() {
       }).catch((err) => console.error('Status ingestion failed:', err.message));
     });
   }
-  const server = createApp({ devices, missions, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
-  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { if (broker) broker.end(true); mongoose.disconnect().then(() => process.exit(0)); }));
+  // Expire pending commands even if the broker is temporarily disconnected.
+  commands ||= createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker });
+  const timer = setInterval(() => commands.expire().catch((err) => console.error('Command expiry failed:', err.message)), 1000);
+  const server = createApp({ devices, missions, commands, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { clearInterval(timer); if (broker) broker.end(true); mongoose.disconnect().then(() => process.exit(0)); }));
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

@@ -16,7 +16,7 @@ function createMissionModel(mongoose) {
     createdBy: { type: String, required: true },
     failureReason: { type: String, default: null },
     pendingCommandId: { type: String, default: null },
-  }, { timestamps: true, versionKey: false });
+  }, { timestamps: true, versionKey: false, minimize: false });
   return mongoose.model('Mission', schema);
 }
 
