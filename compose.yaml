@@ -1,0 +1,15 @@
+services:
+  mongodb:
+    image: mongo:8
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+volumes:
+  mongo-data:

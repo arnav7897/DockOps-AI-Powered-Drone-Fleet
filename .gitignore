@@ -1,0 +1,6 @@
+/flow.md
+/decisions.md
+/plan.md
+/node_modules/
+/.env
+/mosquitto/config/passwd
