@@ -2,7 +2,7 @@
 
 DroneOps is a planned AI-native control plane for drone operations. It will coordinate devices, missions and high-level commands over MQTT, with an operator-facing dashboard and an AI copilot constrained by backend policy. The flight controller remains responsible for flight stabilization, navigation and other flight-critical functions.
 
-**Status:** Requirements only. No application, infrastructure, or user flow has been implemented yet. See [PRD.md](PRD.md) for the full MVP requirements. Setup and run instructions will be added when the relevant components exist.
+**Status:** Foundation in progress. Device registration and listing are implemented; MQTT ingestion, mission workflows and AI features are not yet implemented. See [PRD.md](PRD.md) for the full MVP requirements.
 
 ## Intended users
 
@@ -15,7 +15,7 @@ The PRD proposes Node.js and Express, MongoDB and Mongoose, MQTT.js and Mosquitt
 
 ## MVP roadmap
 
-All phases are planned; none is complete. Each phase includes appropriate automated tests and updates to the operational documentation.
+Phase 1 is in progress; later phases are planned. Each phase includes appropriate automated tests and updates to the operational documentation.
 
 1. **Software foundation:** Establish the Express API, MongoDB, Mosquitto, authentication and device registry. Done when devices can be registered and retrieved through validated, authorized requests and the local services are reproducible.
 2. **Event-driven communication:** Add MQTT ingestion, message validation, device snapshots and a Node.js simulator. Done when multiple simulators report validated state and that state is persisted and queryable.
@@ -27,3 +27,18 @@ All phases are planned; none is complete. Each phase includes appropriate automa
 8. **Demo and documentation:** Document the implemented architecture, MQTT contract, API and test results, and record a walkthrough. Done when the software-only MVP and its failure scenarios can be demonstrated from the documented steps.
 
 The MVP excludes autopilot development, autonomous navigation, unrestricted model-issued commands and claims of flight readiness or safety certification.
+
+## Local development
+
+Use Node.js 24, Docker Compose and a strong, private JWT secret. Install dependencies with `npm ci`. The database and broker are bound to localhost for development; MongoDB has no authentication in this local configuration and must not be exposed to a network.
+
+Before starting Compose, create the broker password file interactively (replace `backend` with the intended local username):
+
+```sh
+docker run --rm -it -v "$PWD/mosquitto/config:/mosquitto/config" --entrypoint mosquitto_passwd eclipse-mosquitto:2 -c /mosquitto/config/passwd backend
+docker compose up -d
+```
+
+Copy `.env.example` to `.env`, replace the example secret, and export the variables in your shell before running `npm start`. The API requires an externally issued HS256 JWT with issuer `droneops`, audience `droneops-api`, a subject, an expiry and role `admin` or `operator`. Admins can register devices with `POST /api/v1/devices` using `deviceId`, `name` and a `capabilities` string array; either role can call `GET /api/v1/devices`. `GET /api/v1/health` is public. Token issuance and user management are not implemented. Run `npm test` for API tests.
+
+The broker configuration is a local foundation only: per-device identities and topic ACLs must be added before device communication is enabled.
