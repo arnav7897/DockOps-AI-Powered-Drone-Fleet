@@ -14,6 +14,7 @@ test('device registry validates input and enforces roles', async (t) => {
       records.push(input); return input;
     },
     async list() { return records; },
+    async events(deviceId) { return [{ deviceId, type: 'STATUS_UPDATE' }]; },
   };
   const server = createApp({ devices, jwtSecret: secret }).listen(0);
   t.after(() => server.close());
@@ -33,4 +34,7 @@ test('device registry validates input and enforces roles', async (t) => {
   const response = await request('/devices', { role: 'operator' });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), [input]);
+  assert.equal((await request('/devices/drone-1/events')).status, 401);
+  const events = await request('/devices/drone-1/events', { role: 'operator' });
+  assert.deepEqual(await events.json(), [{ deviceId: 'drone-1', type: 'STATUS_UPDATE' }]);
 });

@@ -39,6 +39,10 @@ function createApp({ devices, jwtSecret }) {
   app.get('/api/v1/devices', async (_req, res, next) => {
     try { res.json(await devices.list()); } catch (err) { next(err); }
   });
+  app.get('/api/v1/devices/:id/events', async (req, res, next) => {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid device ID' });
+    try { res.json(await devices.events(req.params.id)); } catch (err) { next(err); }
+  });
   app.use((err, _req, res, _next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request too large' });

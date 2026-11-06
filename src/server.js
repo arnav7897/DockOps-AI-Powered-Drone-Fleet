@@ -34,6 +34,7 @@ async function main() {
   const devices = {
     create: async (input) => (await Device.create(input)).toObject(),
     list: () => Device.find().lean(),
+    events: (deviceId) => Event.find({ deviceId }).sort({ timestamp: -1 }).limit(100).lean(),
   };
   let broker;
   if (process.env.MQTT_URL) {
