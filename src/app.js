@@ -55,9 +55,18 @@ function createApp({ devices, missions, jwtSecret }) {
       return mission ? res.json(mission) : res.status(404).json({ error: 'Mission not found' });
     } catch (err) { return next(err); }
   });
+  app.post('/api/v1/missions/:id/assign', async (req, res, next) => {
+    const input = z.object({ deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/) }).strict().safeParse(req.body);
+    if (!input.success) return res.status(400).json({ error: 'Invalid device ID' });
+    try {
+      const mission = await missions.assign(req.params.id, input.data.deviceId);
+      if (mission) return res.json(mission);
+      return res.status(await missions.get(req.params.id) ? 409 : 404).json({ error: 'Mission cannot be assigned' });
+    } catch (err) { return next(err); }
+  });
   app.post('/api/v1/missions/:id/cancel', async (req, res, next) => {
     try {
-      const mission = await missions.cancelDraft(req.params.id);
+      const mission = await missions.cancel(req.params.id);
       if (mission) return res.json(mission);
       return res.status(await missions.get(req.params.id) ? 409 : 404).json({ error: 'Mission cannot be cancelled' });
     } catch (err) { return next(err); }

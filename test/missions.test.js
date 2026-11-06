@@ -10,7 +10,8 @@ test('authenticated operators create, read and cancel draft missions', async (t)
   const missions = {
     async create(input, user) { record = { ...input, missionId: 'm1', createdBy: user.sub, status: 'created' }; return record; },
     async get(id) { return id === 'm1' ? record : null; },
-    async cancelDraft(id) { if (id !== 'm1' || record?.status !== 'created') return null; record.status = 'cancelled'; return record; },
+    async cancel(id) { if (id !== 'm1' || !['created', 'assigned'].includes(record?.status)) return null; record.status = 'cancelled'; return record; },
+    async assign(id, deviceId) { if (id !== 'm1' || record?.status !== 'created' || deviceId !== 'eligible') return null; record.status = 'assigned'; record.assignedDeviceId = deviceId; return record; },
   };
   const server = createApp({ devices: {}, missions, jwtSecret: secret }).listen(0);
   t.after(() => server.close());
@@ -23,6 +24,9 @@ test('authenticated operators create, read and cancel draft missions', async (t)
   assert.equal((await created.json()).createdBy, 'operator');
   assert.equal((await fetch(`${base}/missing`, { headers })).status, 404);
   assert.equal((await fetch(`${base}/m1`, { headers })).status, 200);
+  assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'unavailable' }) })).status, 409);
+  assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'eligible' }) })).status, 200);
+  assert.equal((await fetch(`${base}/m1/assign`, { method: 'POST', headers, body: JSON.stringify({ deviceId: 'eligible' }) })).status, 409);
   assert.equal((await fetch(`${base}/m1/cancel`, { method: 'POST', headers })).status, 200);
   assert.equal((await fetch(`${base}/m1/cancel`, { method: 'POST', headers })).status, 409);
 });

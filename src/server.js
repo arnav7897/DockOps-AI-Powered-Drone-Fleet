@@ -34,7 +34,7 @@ async function main() {
   await Event.init();
   const Mission = createMissionModel(mongoose);
   await Mission.init();
-  const missions = createMissionStore(Mission);
+  const missions = createMissionStore(Mission, Device, mongoose.connection);
   const devices = {
     create: async (input) => (await Device.create(input)).toObject(),
     list: () => Device.find().lean(),
