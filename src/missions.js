@@ -15,6 +15,7 @@ function createMissionModel(mongoose) {
     assignedDeviceId: { type: String, default: null },
     createdBy: { type: String, required: true },
     failureReason: { type: String, default: null },
+    pendingCommandId: { type: String, default: null },
   }, { timestamps: true, versionKey: false });
   return mongoose.model('Mission', schema);
 }
@@ -29,7 +30,7 @@ function createMissionStore(Mission, Device, connection) {
       const draft = await Mission.findOneAndUpdate({ missionId, status: 'created' }, { $set: { status: 'cancelled' } }, { returnDocument: 'after' }).lean();
       if (draft) return draft;
       return connection.transaction(async (session) => {
-        const mission = await Mission.findOneAndUpdate({ missionId, status: 'assigned' }, { $set: { status: 'cancelled' } }, { session, returnDocument: 'after' }).lean();
+        const mission = await Mission.findOneAndUpdate({ missionId, status: 'assigned', pendingCommandId: null }, { $set: { status: 'cancelled' } }, { session, returnDocument: 'after' }).lean();
         if (!mission) return null;
         await Device.updateOne({ deviceId: mission.assignedDeviceId, activeMissionId: missionId }, { $set: { activeMissionId: null } }, { session });
         return mission;
