@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const { missionInput } = require('./missions');
 const { eventFilters } = require('./history');
+const { ProposalError } = require('./proposals');
 
 const deviceInput = z.object({
   deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).refine((id) => id !== 'backend'),
@@ -10,7 +11,7 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(100)).max(50),
 }).strict();
 
-function createApp({ devices, missions, commands, history, assistant, jwtSecret }) {
+function createApp({ devices, missions, commands, history, assistant, proposals, jwtSecret }) {
   const app = express();
   const aiRequestWindows = new Map();
   app.use(express.json({ limit: '16kb' }));
@@ -40,10 +41,36 @@ function createApp({ devices, missions, commands, history, assistant, jwtSecret 
     window.count++;
     aiRequestWindows.set(req.user.sub, window);
     try {
-      return res.json(await assistant.ask(input.data.message));
+      return res.json(await assistant.ask(input.data.message, req.user));
     } catch {
       return res.status(502).json({ error: 'AI assistant is temporarily unavailable' });
     }
+  });
+  app.get('/api/v1/ai/proposals/:id', async (req, res) => {
+    if (!proposals) return res.status(503).json({ error: 'AI proposals are not configured' });
+    if (!z.uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid proposal ID' });
+    const proposal = await proposals.get(req.params.id, req.user);
+    return proposal ? res.json(proposal) : res.status(404).json({ error: 'Proposal not found' });
+  });
+  app.post('/api/v1/ai/proposals/:id/dispatch', async (req, res) => {
+    if (!proposals) return res.status(503).json({ error: 'AI proposals are not configured' });
+    if (!z.uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid proposal ID' });
+    const input = z.object({ approvalId: z.uuid() }).strict().safeParse(req.body);
+    if (!input.success) return res.status(400).json({ error: 'Invalid dispatch request' });
+    try {
+      const result = await proposals.dispatch(req.params.id, input.data.approvalId, req.user);
+      return res.status(result.status === 'dispatched' ? 202 : 200).json(result);
+    } catch (err) { return proposalError(err, res); }
+  });
+  app.post('/api/v1/ai/proposals/:id/:decision', async (req, res) => {
+    if (!proposals) return res.status(503).json({ error: 'AI proposals are not configured' });
+    if (!z.uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid proposal ID' });
+    if (!['approve', 'reject'].includes(req.params.decision)) return res.status(404).json({ error: 'Not found' });
+    if (!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({ error: 'Invalid approval request' });
+    try {
+      const result = await proposals[req.params.decision](req.params.id, req.user);
+      return res.json(result);
+    } catch (err) { return proposalError(err, res); }
   });
   app.post('/api/v1/devices', async (req, res, next) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
@@ -142,6 +169,12 @@ function createApp({ devices, missions, commands, history, assistant, jwtSecret 
     return res.status(500).json({ error: 'Internal server error' });
   });
   return app;
+}
+
+function proposalError(err, res) {
+  if (!(err instanceof ProposalError)) return res.status(500).json({ error: 'Internal server error' });
+  const status = err.code === 'NOT_FOUND' ? 404 : err.code === 'FORBIDDEN' ? 403 : err.code === 'INVALID' ? 400 : ['EXPIRED', 'CONFLICT', 'POLICY_CHANGED'].includes(err.code) ? 409 : 500;
+  return res.status(status).json({ error: err.code === 'NOT_FOUND' ? 'Proposal not found' : err.code === 'EXPIRED' ? 'Proposal or approval expired' : err.code === 'POLICY_CHANGED' ? 'Risk policy changed; create a new proposal' : err.code === 'FORBIDDEN' ? 'Forbidden' : err.code === 'INVALID' ? 'Invalid proposal' : 'Proposal state conflict' });
 }
 
 module.exports = { createApp };

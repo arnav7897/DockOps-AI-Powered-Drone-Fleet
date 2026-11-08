@@ -9,6 +9,7 @@ const { createAuditModel } = require('./audit');
 const { createAiTools } = require('./ai-tools');
 const { createAssistant } = require('./assistant');
 const { createConfiguredModel } = require('./llm');
+const { createProposalModel, createProposalService } = require('./proposals');
 
 async function main() {
   const { MONGODB_URI, JWT_SECRET } = process.env;
@@ -47,6 +48,8 @@ async function main() {
   await Mission.init();
   const Audit = createAuditModel(mongoose);
   await Audit.init();
+  const Proposal = createProposalModel(mongoose);
+  await Proposal.init();
   const missions = createMissionStore(Mission, Device, mongoose.connection, staleAfterMs, Audit);
   const Command = createCommandModel(mongoose);
   await Command.init();
@@ -122,9 +125,10 @@ async function main() {
   }
   // Expire pending commands even if the broker is temporarily disconnected.
   commands ||= createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker, staleAfterMs, Audit });
+  const proposals = createProposalService({ Proposal, missions, commands, connection: mongoose.connection, Audit });
   const timer = setInterval(() => commands.expire().catch((err) => console.error('Command expiry failed:', err.message)), 1000);
-  const assistant = complete ? createAssistant({ tools: createAiTools({ devices, missions, history }), complete }) : null;
-  const server = createApp({ devices, missions, commands, history, assistant, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
+  const assistant = complete ? createAssistant({ tools: createAiTools({ devices, missions, history, proposals }), complete }) : null;
+  const server = createApp({ devices, missions, commands, history, assistant, proposals, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { clearInterval(timer); if (broker) broker.end(true); mongoose.disconnect().then(() => process.exit(0)); }));
 }
 

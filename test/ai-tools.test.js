@@ -20,7 +20,7 @@ test('AI tool registry exposes grounded read-only tools only', async () => {
     ]; } },
   });
 
-  assert.deepEqual(tools.definitions.map(({ name }) => name), ['getFleetSnapshot', 'getDeviceStatus', 'getMissionStatus', 'getRecentEvents']);
+  assert.deepEqual(tools.definitions.map(({ name }) => name), ['getFleetSnapshot', 'getDeviceStatus', 'getMissionStatus', 'getRecentEvents', 'proposeMission']);
   assert.deepEqual(await tools.execute('getFleetSnapshot', {}), {
     truncated: false,
     devices: [{ deviceId: 'd1', name: 'Drone 1', capabilities: ['survey'], connectivityState: 'online', operationalState: 'idle', lastSeenAt: new Date(0), activeMissionId: null, stale: true }],
@@ -58,4 +58,14 @@ test('AI tools reject unknown names and invalid or extra arguments', async () =>
   await assert.rejects(tools.execute('getDeviceStatus', { deviceId: 'd1', topic: '#' }));
   await assert.rejects(tools.execute('getMissionStatus', { missionId: 'not-a-uuid' }));
   await assert.rejects(tools.execute('getRecentEvents', { deviceId: 'd1', rawQuery: {} }));
+});
+
+test('proposal tool forwards the authenticated operator and does not accept a model risk tier', async () => {
+  let caller;
+  const tools = createAiTools({ proposals: { async propose(input, user) { caller = { input, user }; return { action: 'create_draft', riskTier: 'low', status: 'applied', missionId: 'mission-1', missionStatus: 'created' }; } } });
+  const user = { sub: 'operator-1', role: 'operator', exp: 1 };
+  const result = await tools.execute('proposeMission', { action: 'create_draft', type: 'survey', parameters: {} }, { user });
+  assert.deepEqual(result, { action: 'create_draft', riskTier: 'low', status: 'applied', missionId: 'mission-1', missionStatus: 'created' });
+  assert.deepEqual(caller, { input: { action: 'create_draft', type: 'survey', parameters: {} }, user });
+  await assert.rejects(tools.execute('proposeMission', { action: 'create_draft', type: 'survey', parameters: {}, riskTier: 'low' }, { user }));
 });

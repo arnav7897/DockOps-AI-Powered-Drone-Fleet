@@ -1,9 +1,12 @@
 const { z } = require('zod');
 const { eventFilters } = require('./history');
+const { proposalInput } = require('./proposals');
+const { actions } = require('./commands');
 
 const deviceInput = z.object({ deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/) }).strict();
 const missionInput = z.object({ missionId: z.uuid() }).strict();
 const emptyInput = z.object({}).strict();
+const commandNames = Object.keys(actions);
 const safeText = (value) => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300) : value;
 
 const toolDefinitions = [
@@ -11,9 +14,14 @@ const toolDefinitions = [
   { name: 'getDeviceStatus', description: 'Read the current status for one device.', inputSchema: { type: 'object', properties: { deviceId: { type: 'string', maxLength: 64, pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, required: ['deviceId'], additionalProperties: false } },
   { name: 'getMissionStatus', description: 'Read the current status for one mission.', inputSchema: { type: 'object', properties: { missionId: { type: 'string', format: 'uuid' } }, required: ['missionId'], additionalProperties: false } },
   { name: 'getRecentEvents', description: 'Read recent operational events using supported filters.', inputSchema: { type: 'object', properties: { deviceId: { type: 'string', maxLength: 64, pattern: '^[a-zA-Z0-9_-]{1,64}$' }, missionId: { type: 'string', format: 'uuid' }, correlationId: { type: 'string', format: 'uuid' }, kind: { type: 'string', enum: ['device', 'command', 'audit'] } }, additionalProperties: false } },
+  { name: 'proposeMission', description: 'If the operator explicitly requests mission work, create an unassigned low-risk draft or submit a high-risk assignment or command for human approval. Never propose a risk tier.', inputSchema: { type: 'object', oneOf: [
+    { type: 'object', properties: { action: { const: 'create_draft' }, type: { type: 'string', minLength: 1, maxLength: 100 }, parameters: { type: 'object', maxProperties: 32, additionalProperties: true } }, required: ['action', 'type', 'parameters'], additionalProperties: false },
+    { type: 'object', properties: { action: { const: 'assign_device' }, missionId: { type: 'string', format: 'uuid' }, deviceId: { type: 'string', maxLength: 64, pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, required: ['action', 'missionId', 'deviceId'], additionalProperties: false },
+    { type: 'object', properties: { action: { const: 'mission_command' }, missionId: { type: 'string', format: 'uuid' }, command: { type: 'string', enum: commandNames } }, required: ['action', 'missionId', 'command'], additionalProperties: false },
+  ] } },
 ];
 
-function createAiTools({ devices, missions, history }) {
+function createAiTools({ devices, missions, history, proposals }) {
   const tools = {
     async getFleetSnapshot(args) {
       emptyInput.parse(args);
@@ -57,12 +65,18 @@ function createAiTools({ devices, missions, history }) {
         return { kind: 'audit', timestamp, eventId, type, missionId, deviceId, correlationId };
       });
     },
+    async proposeMission(args, { user } = {}) {
+      const input = proposalInput.parse(args);
+      const result = await proposals.propose(input, user);
+      if (result.status === 'applied') return { action: result.action, riskTier: result.riskTier, status: result.status, missionId: result.missionId, missionStatus: result.missionStatus };
+      return { proposalId: result.proposalId, action: result.action, riskTier: result.riskTier, status: result.status, missionId: result.missionId, expiresAt: result.expiresAt };
+    },
   };
   return {
     definitions: toolDefinitions,
-    async execute(name, args) {
+    async execute(name, args, context) {
       if (!Object.hasOwn(tools, name)) throw new Error('Unknown AI tool');
-      return tools[name](args);
+      return tools[name](args, context);
     },
   };
 }

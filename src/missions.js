@@ -23,11 +23,11 @@ function createMissionModel(mongoose) {
 
 function createMissionStore(Mission, Device, connection, staleAfterMs = 60000, Audit) {
   return {
-    async create(input, user) {
+    async create(input, user, { source = 'operator' } = {}) {
       const missionId = randomUUID();
       return connection.transaction(async (session) => {
         const [mission] = await Mission.create([{ ...input, missionId, status: 'created', createdBy: user.sub }], { session });
-        await recordAudit(Audit, { type: 'MISSION_CREATED', missionId, metadata: { createdBy: user.sub } }, session);
+        await recordAudit(Audit, { type: 'MISSION_CREATED', missionId, metadata: { createdBy: user.sub, source } }, session);
         return mission.toObject();
       });
     },

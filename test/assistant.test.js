@@ -60,6 +60,23 @@ test('assistant refuses unsupported answers when a lookup finds no record', asyn
   }
 });
 
+test('assistant executes at most one mission proposal per chat turn', async () => {
+  let proposals = 0;
+  let completions = 0;
+  const assistant = createAssistant({
+    tools: {
+      definitions: [],
+      async execute(name) { assert.equal(name, 'proposeMission'); proposals++; return { action: 'create_draft', riskTier: 'low', status: 'applied', missionId: 'mission-1' }; },
+    },
+    async complete() { completions++; return response({ tool_calls: [tool('proposal-1', 'proposeMission'), tool('proposal-2', 'proposeMission')] }); },
+  });
+  const result = await assistant.ask('Create a survey draft.', { sub: 'operator-1', role: 'operator', exp: Date.now() / 1000 + 60 });
+  assert.equal(proposals, 1);
+  assert.equal(completions, 1);
+  assert.match(result.answer, /not assigned or dispatched/);
+  assert.deepEqual(result.sources, [{ kind: 'mission', id: 'mission-1' }]);
+});
+
 test('chat route requires auth, validates input, and fails closed without configured provider', async (t) => {
   const secret = 'test-secret-at-least-thirty-two-characters';
   const token = jwt.sign({ role: 'operator' }, secret, { subject: 'operator-1', issuer: 'droneops', audience: 'droneops-api', expiresIn: '1h' });
