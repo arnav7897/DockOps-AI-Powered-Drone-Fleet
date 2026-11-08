@@ -26,6 +26,7 @@ DroneOps manages high-level operational requests. Flight stabilization, navigati
 | Reliability | Stale-state detection, duplicate handling, persistent simulator state, and late-acknowledgement reconciliation protect the workflow across reconnects. |
 | Operational visibility | Query device events, mission and command audit records, alerts, and read-only device or mission replays. |
 | Access control | JWT authentication with admin and operator roles; device registration is restricted to admins. |
+| AI foundation | An internal, vendor-neutral read-only tool registry is implemented; no model, chat route or AI-driven state changes are available yet. |
 
 **Built with:** Node.js, Express, MongoDB, Mongoose, MQTT.js, Eclipse Mosquitto, Zod and Docker Compose.
 

@@ -32,6 +32,7 @@ function createMissionStore(Mission, Device, connection, staleAfterMs = 60000, A
       });
     },
     get(missionId) { return Mission.findOne({ missionId }).lean(); },
+    list({ limit = 100 } = {}) { return Mission.find().sort({ updatedAt: -1 }).limit(limit).lean(); },
     async cancel(missionId) {
       return connection.transaction(async (session) => {
         const mission = await Mission.findOneAndUpdate({ missionId, status: { $in: ['created', 'assigned'] }, pendingCommandId: null }, { $set: { status: 'cancelled' } }, { session, returnDocument: 'after' }).lean();

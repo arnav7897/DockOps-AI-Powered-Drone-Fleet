@@ -56,7 +56,7 @@ DroneOps addresses this through an event-driven backend, explicit state machines
 
 ### 7.1 Operations Copilot
 
--   Accept natural-language questions about devices, missions and incidents.; Convert mission requests into structured proposals.; Explain device eligibility and why a request was rejected.; Ask for clarification when required mission information is missing.; Require explicit operator approval before any state-changing action.
+-   Accept natural-language questions about devices, missions and incidents.; Convert mission requests into structured proposals.; Explain device eligibility and why a request was rejected.; Ask for clarification when required mission information is missing.; Permit autonomous execution only for actions explicitly classified as low-risk by deterministic backend policy; require explicit operator approval for high-risk or unclassified actions.
 
 ### 7.2 Read-Only Fleet Assistant
 
@@ -66,7 +66,7 @@ DroneOps addresses this through an event-driven backend, explicit state machines
 
 Expose narrow tools such as: - `getFleetSnapshot()` - `getDeviceStatus(deviceId)` - `getMissionStatus(missionId)` - `getRecentEvents(filters)` - `checkDeviceEligibility(requirements)` - `proposeMission(input)` - `requestApproval(proposalId)` - `dispatchApprovedRequest(proposalId, approvalId)`
 
-The model receives neither MQTT credentials nor unrestricted broker access. The backend remains the authority for permissions, validation and dispatch. Approval is not a permanent authorization: eligibility and policy must be checked again at dispatch time.
+The model receives neither MQTT credentials nor unrestricted broker access. The backend remains the authority for permissions, deterministic risk classification, validation and dispatch. High-risk or unclassified actions require explicit operator approval. Approval is not a permanent authorization: eligibility and policy must be checked again at dispatch time. Flight-critical functions remain outside this platform and can never be an AI action.
 
 ### 7.4 Fault Explanation
 
@@ -190,7 +190,7 @@ Do not expose a generic API for publishing arbitrary MQTT topics or commands.
 
 ## 16. Definition of Done
 
--   Multiple simulated devices communicate through MQTT.; Device state and event history are persisted and queryable.; Missions follow enforced state transitions and eligibility rules.; Commands are allowlisted, correlated, expiry-checked and idempotent.; Disconnects, stale state and failed commands are observable.; The copilot answers from backend data and proposes valid structured actions.; No AI action can bypass backend authorization or operator approval.; Critical AI evaluations and deterministic tests run in CI.; The platform works without physical hardware; ESP32 is an optional edge demonstration.
+-   Multiple simulated devices communicate through MQTT.; Device state and event history are persisted and queryable.; Missions follow enforced state transitions and eligibility rules.; Commands are allowlisted, correlated, expiry-checked and idempotent.; Disconnects, stale state and failed commands are observable.; The copilot answers from backend data and proposes valid structured actions.; Low-risk autonomy is bounded by deterministic backend policy; high-risk or unclassified actions require human approval.; Dispatch revalidates authorization and eligibility.; Flight-critical functions remain outside the platform.; Critical AI evaluations and deterministic tests run in CI.; The platform works without physical hardware; ESP32 is an optional edge demonstration.
 
 ## 17. Positioning
 

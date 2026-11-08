@@ -49,7 +49,13 @@ async function main() {
   const history = createHistory({ Device, Event, Command, Audit, Mission, staleAfterMs });
   const devices = {
     create: async (input) => (await Device.create(input)).toObject(),
-    async list() { const now = Date.now(); return (await Device.find().lean()).map((device) => ({ ...device, stale: !device.lastSeenAt || now - device.lastSeenAt.getTime() > staleAfterMs })); },
+    async list({ limit } = {}) {
+      const now = Date.now();
+      let query = Device.find();
+      if (Number.isInteger(limit) && limit > 0) query = query.limit(limit);
+      return (await query.lean()).map((device) => ({ ...device, stale: !device.lastSeenAt || now - device.lastSeenAt.getTime() > staleAfterMs }));
+    },
+    async get(deviceId) { const device = await Device.findOne({ deviceId }).lean(); return device ? { ...device, stale: !device.lastSeenAt || Date.now() - device.lastSeenAt.getTime() > staleAfterMs } : null; },
     events: (deviceId) => Event.find({ deviceId }).sort({ timestamp: -1 }).limit(100).lean(),
   };
   let broker;
