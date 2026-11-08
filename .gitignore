@@ -2,5 +2,6 @@
 /decisions.md
 /plan.md
 /node_modules/
+/.simulator-state/
 /.env
 /mosquitto/config/passwd

@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { z } = require('zod');
+const { recordAudit } = require('./audit');
 
 const actions = Object.freeze({
   start: { from: ['assigned'], to: 'active', command: 'MISSION_START' },
@@ -34,7 +35,7 @@ const ackSchema = z.object({
   timestamp: z.iso.datetime({ offset: true }), status: z.enum(['acknowledged', 'rejected']),
 }).strict();
 
-function createCommandService({ Command, Mission, Device, connection, broker }) {
+function createCommandService({ Command, Mission, Device, connection, broker, staleAfterMs = 60000, Audit }) {
   async function prepare(missionId, action, user) {
     const policy = actions[action];
     if (!policy || !user || !['admin', 'operator'].includes(user.role) || typeof user.sub !== 'string' || !user.sub || !Number.isFinite(user.exp) || user.exp * 1000 <= Date.now()) return null;
@@ -47,7 +48,7 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
       // Touch the device in the transaction so a concurrent status change conflicts.
       const device = await Device.findOneAndUpdate({ deviceId: mission.assignedDeviceId, activeMissionId: missionId,
         connectivityState: 'online', ...(action === 'start' ? { operationalState: 'idle' } : {}),
-        capabilities: mission.type, lastSeenAt: { $gte: new Date(now.getTime() - 60000), $lte: new Date(now.getTime() + 30000) },
+        capabilities: mission.type, lastSeenAt: { $gte: new Date(now.getTime() - staleAfterMs), $lte: new Date(now.getTime() + 30000) },
       }, { $set: { activeMissionId: missionId } }, { session, returnDocument: 'after' }).lean();
       if (!device) return null;
       const commandId = randomUUID();
@@ -56,6 +57,7 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
       const [command] = await Command.create([{ commandId, correlationId: randomUUID(), missionId, deviceId: device.deviceId,
         action, command: policy.command, fromStatus: mission.status, toStatus: policy.to, status: 'pending',
         issuedAt: now, expiresAt: new Date(Math.min(now.getTime() + 30000, user.exp * 1000)), requestedBy: user.sub }], { session });
+      await recordAudit(Audit, { type: 'COMMAND_PENDING', missionId, deviceId: device.deviceId, correlationId: command.correlationId, metadata: { commandId, action, requestedBy: user.sub } }, session);
       return command.toObject();
     });
   }
@@ -63,7 +65,10 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
   async function abandonUnsent(command, reason) {
     return connection.transaction(async (session) => {
       const result = await Command.updateOne({ commandId: command.commandId, status: 'pending' }, { $set: { status: 'failed', failureReason: reason } }, { session });
-      if (result.modifiedCount) await Mission.updateOne({ missionId: command.missionId, pendingCommandId: command.commandId }, { $set: { pendingCommandId: null } }, { session });
+      if (result.modifiedCount) {
+        await Mission.updateOne({ missionId: command.missionId, pendingCommandId: command.commandId }, { $set: { pendingCommandId: null } }, { session });
+        await recordAudit(Audit, { type: 'COMMAND_FAILED', missionId: command.missionId, deviceId: command.deviceId, correlationId: command.correlationId, metadata: { commandId: command.commandId, reason } }, session);
+      }
     });
   }
 
@@ -73,7 +78,7 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
     const now = Date.now();
     const mission = await Mission.findOne({ missionId, status: command.fromStatus, pendingCommandId: command.commandId }).lean();
     const eligible = mission && await Device.exists({ deviceId: command.deviceId, activeMissionId: missionId, connectivityState: 'online', capabilities: mission.type,
-      ...(action === 'start' ? { operationalState: 'idle' } : {}), lastSeenAt: { $gte: new Date(now - 60000), $lte: new Date(now + 30000) } });
+      ...(action === 'start' ? { operationalState: 'idle' } : {}), lastSeenAt: { $gte: new Date(now - staleAfterMs), $lte: new Date(now + 30000) } });
     if (!eligible || !broker.connected || !broker.readyForCommands || user.exp * 1000 <= Date.now() || command.expiresAt.getTime() <= Date.now()) {
       await abandonUnsent(command, 'Dispatch preconditions changed');
       return null;
@@ -106,13 +111,15 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
     return connection.transaction(async (session) => {
       const now = new Date();
       const timestamp = new Date(ack.timestamp);
-      if (timestamp.getTime() > now.getTime() + 30000 || timestamp.getTime() < now.getTime() - 300000) return false;
-      const command = await Command.findOne({ commandId: ack.commandId, correlationId: ack.correlationId, missionId: ack.missionId, deviceId: ack.deviceId, status: 'pending', expiresAt: { $gt: now } }).session(session).lean();
+      if (timestamp.getTime() > now.getTime() + 30000) return false;
+      const command = await Command.findOne({ commandId: ack.commandId, correlationId: ack.correlationId, missionId: ack.missionId, deviceId: ack.deviceId, status: { $in: ['pending', 'timed_out'] } }).session(session).lean();
       if (!command || timestamp < command.issuedAt || timestamp > command.expiresAt) return false;
       const mission = await Mission.findOneAndUpdate({ missionId: command.missionId, status: command.fromStatus, pendingCommandId: command.commandId },
         { $set: { pendingCommandId: null, ...(ack.status === 'acknowledged' ? { status: command.toStatus } : {}) } }, { session, returnDocument: 'after' }).lean();
       if (!mission) return false;
-      await Command.updateOne({ commandId: command.commandId, status: 'pending' }, { $set: { status: ack.status, acknowledgedAt: now } }, { session });
+      await Command.updateOne({ commandId: command.commandId, status: command.status }, { $set: { status: ack.status, acknowledgedAt: now }, $unset: { failureReason: 1 } }, { session });
+      await recordAudit(Audit, { type: ack.status === 'acknowledged' ? 'COMMAND_ACKNOWLEDGED' : 'COMMAND_REJECTED', missionId: command.missionId,
+        deviceId: command.deviceId, correlationId: command.correlationId, metadata: { commandId: command.commandId, fromStatus: command.fromStatus, toStatus: ack.status === 'acknowledged' ? command.toStatus : command.fromStatus } }, session);
       if (ack.status === 'acknowledged' && ['completed', 'cancelled'].includes(command.toStatus)) {
         await Device.updateOne({ deviceId: command.deviceId, activeMissionId: command.missionId }, { $set: { activeMissionId: null } }, { session });
       }
@@ -122,7 +129,12 @@ function createCommandService({ Command, Mission, Device, connection, broker }) 
 
   async function expire() {
     // Timed-out deliveries are uncertain; pendingCommandId deliberately remains set.
-    await Command.updateMany({ status: 'pending', expiresAt: { $lte: new Date() } }, { $set: { status: 'timed_out', failureReason: 'Acknowledgement not received before expiry' } });
+    const expired = await Command.find({ status: 'pending', expiresAt: { $lte: new Date() } }).limit(100).lean();
+    for (const command of expired) await connection.transaction(async (session) => {
+      const result = await Command.updateOne({ commandId: command.commandId, status: 'pending', expiresAt: { $lte: new Date() } }, { $set: { status: 'timed_out', failureReason: 'Acknowledgement not received before expiry' } }, { session });
+      if (result.modifiedCount) await recordAudit(Audit, { type: 'COMMAND_TIMED_OUT', missionId: command.missionId, deviceId: command.deviceId,
+        correlationId: command.correlationId, metadata: { commandId: command.commandId } }, session);
+    });
   }
   return { dispatch, acknowledge, expire, get: (commandId) => Command.findOne({ commandId }).lean() };
 }

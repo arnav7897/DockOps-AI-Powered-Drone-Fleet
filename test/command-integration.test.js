@@ -4,18 +4,19 @@ const mongoose = require('mongoose');
 const { createMissionModel, createMissionStore } = require('../src/missions');
 const { createCommandModel, createCommandService } = require('../src/commands');
 const { createSimulatorCommands } = require('../simulator/commands');
+const { createAuditModel } = require('../src/audit');
 
 test('command transitions, acknowledgements and uncertain timeout preserve reservation', { skip: !process.env.TEST_MONGODB_URI }, async () => {
   await mongoose.connect(process.env.TEST_MONGODB_URI, { dbName: `droneops_commands_${process.pid}` });
   try {
     const Device = mongoose.model('CommandTestDevice', new mongoose.Schema({ deviceId: String, connectivityState: String, operationalState: String,
       capabilities: [String], activeMissionId: { type: String, default: null }, lastSeenAt: Date }));
-    const Mission = createMissionModel(mongoose), Command = createCommandModel(mongoose);
-    await Promise.all([Device.init(), Mission.init(), Command.init()]);
-    const missions = createMissionStore(Mission, Device, mongoose.connection);
+    const Mission = createMissionModel(mongoose), Command = createCommandModel(mongoose), Audit = createAuditModel(mongoose);
+    await Promise.all([Device.init(), Mission.init(), Command.init(), Audit.init()]);
+    const missions = createMissionStore(Mission, Device, mongoose.connection, 60000, Audit);
     const sent = [];
     const broker = { connected: true, readyForCommands: true, async publishAsync(topic, raw) { sent.push({ topic, raw }); } };
-    const commands = createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker });
+    const commands = createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker, Audit });
     const simulator = createSimulatorCommands('d1');
     const user = { role: 'operator', sub: 'op', exp: Math.floor(Date.now() / 1000) + 15 };
     await Device.create({ deviceId: 'd1', connectivityState: 'online', operationalState: 'idle', capabilities: ['survey'], lastSeenAt: new Date() });
@@ -73,11 +74,21 @@ test('command transitions, acknowledgements and uncertain timeout preserve reser
     const pending = starts.find(Boolean);
     assert.ok(pending);
     assert.equal(await missions.cancel(second.missionId), null);
-    await Command.updateOne({ commandId: pending.commandId }, { $set: { expiresAt: new Date(Date.now() - 1) } });
+    const lateAck = simulator.handle(Buffer.from(sent.at(-1).raw));
+    assert.ok(lateAck);
+    await Command.updateOne({ commandId: pending.commandId }, { $set: { expiresAt: new Date(lateAck.timestamp) } });
     await commands.expire();
     assert.equal((await commands.get(pending.commandId)).status, 'timed_out');
     assert.equal((await Device.findOne({ deviceId: 'd1' }).lean()).activeMissionId, second.missionId);
     assert.equal(await commands.dispatch(second.missionId, 'start', user), null);
+    assert.equal(await commands.acknowledge('devices/d1/ack', Buffer.from(JSON.stringify({ ...lateAck, timestamp: new Date(Date.now() + 60000).toISOString() }))), false);
+    assert.equal(await commands.acknowledge('devices/d1/ack', Buffer.from(JSON.stringify({ ...lateAck, timestamp: new Date(new Date(lateAck.timestamp).getTime() + 1).toISOString() }))), false);
+    assert.equal(await commands.acknowledge('devices/d1/ack', Buffer.from(JSON.stringify(lateAck))), true);
+    assert.equal((await commands.get(pending.commandId)).status, 'acknowledged');
+    assert.equal((await missions.get(second.missionId)).status, 'active');
+    const audit = await Audit.find({ correlationId: pending.correlationId }).lean();
+    assert.deepEqual(audit.map((event) => event.type).sort(), ['COMMAND_ACKNOWLEDGED', 'COMMAND_PENDING', 'COMMAND_TIMED_OUT']);
+    assert.equal(await Audit.countDocuments({ missionId: second.missionId, type: 'MISSION_ASSIGNED' }), 1);
   } finally {
     await mongoose.connection.dropDatabase();
     await mongoose.disconnect();

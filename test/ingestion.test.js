@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ingestStatus } = require('../src/ingestion');
+const { ingestStatus, ingestDisconnect } = require('../src/ingestion');
+const { randomUUID } = require('node:crypto');
 
 test('status ingestion accepts only valid, current, matching messages', async () => {
   const now = Date.now();
@@ -15,5 +16,18 @@ test('status ingestion accepts only valid, current, matching messages', async ()
   assert.equal(await send('devices/d1/status', { ...message, timestamp: new Date(now + 30001).toISOString() }), false);
   assert.equal(await send('devices/d1/status', { ...message, schemaVersion: 2 }), false);
   assert.equal(await ingestStatus('devices/d1/status', Buffer.from('{'), store, now), false);
+  assert.equal(await ingestStatus('devices/d1/status', Buffer.from(JSON.stringify(message)), store, now, true), false);
+  assert.equal(seen.length, 1);
+});
+
+test('disconnect notices require matching device and a non-retained session', async () => {
+  const message = { schemaVersion: 1, messageId: randomUUID(), deviceId: 'd1', sessionId: randomUUID(), type: 'DEVICE_DISCONNECTED' };
+  const seen = [];
+  const store = { async recordDisconnect(value) { seen.push(value); return true; } };
+  const raw = Buffer.from(JSON.stringify(message));
+  assert.equal(await ingestDisconnect('devices/d1/events', raw, store), true);
+  assert.equal(await ingestDisconnect('devices/d1/events', raw, store, true), false);
+  assert.equal(await ingestDisconnect('devices/d2/events', raw, store), false);
+  assert.equal(await ingestDisconnect('devices/d1/events', Buffer.from('{'), store), false);
   assert.equal(seen.length, 1);
 });

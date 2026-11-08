@@ -17,5 +17,7 @@ services:
       - "127.0.0.1:1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto-data:/mosquitto/data
 volumes:
   mongo-data:
+  mosquitto-data:

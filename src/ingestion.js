@@ -4,6 +4,7 @@ const statusMessage = z.object({
   schemaVersion: z.literal(1),
   messageId: z.string().min(1).max(128),
   deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
+  sessionId: z.uuid().optional(),
   timestamp: z.iso.datetime({ offset: true }),
   type: z.literal('STATUS_UPDATE'),
   payload: z.object({
@@ -12,9 +13,9 @@ const statusMessage = z.object({
   }).strict(),
 }).strict();
 
-async function ingestStatus(topic, raw, store, now = Date.now()) {
+async function ingestStatus(topic, raw, store, now = Date.now(), retained = false) {
   const match = /^devices\/([a-zA-Z0-9_-]{1,64})\/status$/.exec(topic);
-  if (!match || raw.length > 16384) return false;
+  if (!match || retained || raw.length > 16384) return false;
   let input;
   try { input = JSON.parse(raw.toString()); } catch { return false; }
   const result = statusMessage.safeParse(input);
@@ -24,4 +25,15 @@ async function ingestStatus(topic, raw, store, now = Date.now()) {
   return store.recordStatus(result.data);
 }
 
-module.exports = { ingestStatus };
+const disconnectMessage = z.object({ schemaVersion: z.literal(1), messageId: z.uuid(), deviceId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), sessionId: z.uuid(), type: z.literal('DEVICE_DISCONNECTED') }).strict();
+
+async function ingestDisconnect(topic, raw, store, retained = false) {
+  const match = /^devices\/([a-zA-Z0-9_-]{1,64})\/events$/.exec(topic);
+  if (!match || retained || raw.length > 16384) return false;
+  let parsed;
+  try { parsed = disconnectMessage.safeParse(JSON.parse(raw.toString())); } catch { return false; }
+  if (!parsed.success || parsed.data.deviceId !== match[1]) return false;
+  return store.recordDisconnect(parsed.data);
+}
+
+module.exports = { ingestStatus, ingestDisconnect };

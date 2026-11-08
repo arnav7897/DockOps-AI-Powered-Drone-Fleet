@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { z } = require('zod');
+const { recordAudit } = require('./audit');
 
 const missionInput = z.object({
   type: z.string().trim().min(1).max(100),
@@ -20,19 +21,23 @@ function createMissionModel(mongoose) {
   return mongoose.model('Mission', schema);
 }
 
-function createMissionStore(Mission, Device, connection) {
+function createMissionStore(Mission, Device, connection, staleAfterMs = 60000, Audit) {
   return {
     async create(input, user) {
-      return (await Mission.create({ ...input, missionId: randomUUID(), status: 'created', createdBy: user.sub })).toObject();
+      const missionId = randomUUID();
+      return connection.transaction(async (session) => {
+        const [mission] = await Mission.create([{ ...input, missionId, status: 'created', createdBy: user.sub }], { session });
+        await recordAudit(Audit, { type: 'MISSION_CREATED', missionId, metadata: { createdBy: user.sub } }, session);
+        return mission.toObject();
+      });
     },
     get(missionId) { return Mission.findOne({ missionId }).lean(); },
     async cancel(missionId) {
-      const draft = await Mission.findOneAndUpdate({ missionId, status: 'created' }, { $set: { status: 'cancelled' } }, { returnDocument: 'after' }).lean();
-      if (draft) return draft;
       return connection.transaction(async (session) => {
-        const mission = await Mission.findOneAndUpdate({ missionId, status: 'assigned', pendingCommandId: null }, { $set: { status: 'cancelled' } }, { session, returnDocument: 'after' }).lean();
+        const mission = await Mission.findOneAndUpdate({ missionId, status: { $in: ['created', 'assigned'] }, pendingCommandId: null }, { $set: { status: 'cancelled' } }, { session, returnDocument: 'after' }).lean();
         if (!mission) return null;
-        await Device.updateOne({ deviceId: mission.assignedDeviceId, activeMissionId: missionId }, { $set: { activeMissionId: null } }, { session });
+        if (mission.assignedDeviceId) await Device.updateOne({ deviceId: mission.assignedDeviceId, activeMissionId: missionId }, { $set: { activeMissionId: null } }, { session });
+        await recordAudit(Audit, { type: 'MISSION_CANCELLED', missionId, deviceId: mission.assignedDeviceId || undefined }, session);
         return mission;
       });
     },
@@ -42,13 +47,14 @@ function createMissionStore(Mission, Device, connection) {
         if (!mission) return null;
         const device = await Device.findOneAndUpdate({
           deviceId, connectivityState: 'online', operationalState: 'idle', activeMissionId: null,
-          capabilities: mission.type, lastSeenAt: { $gte: new Date(Date.now() - 60000), $lte: new Date(Date.now() + 30000) },
+          capabilities: mission.type, lastSeenAt: { $gte: new Date(Date.now() - staleAfterMs), $lte: new Date(Date.now() + 30000) },
         }, { $set: { activeMissionId: missionId } }, { session, returnDocument: 'after' }).lean();
         if (!device) return null;
         const result = await Mission.findOneAndUpdate({ missionId, status: 'created' }, {
           $set: { status: 'assigned', assignedDeviceId: deviceId },
         }, { session, returnDocument: 'after' }).lean();
         if (!result) throw new Error('Mission changed during assignment');
+        await recordAudit(Audit, { type: 'MISSION_ASSIGNED', missionId, deviceId }, session);
         return result;
       });
     },
