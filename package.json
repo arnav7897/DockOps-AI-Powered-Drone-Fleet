@@ -1,7 +1,7 @@
 {
   "name": "dockops-ai-powered-drone-fleet",
   "version": "1.0.0",
-  "description": "DroneOps is a planned AI-native control plane for drone operations. It will coordinate devices, missions and high-level commands over MQTT, with an operator-facing dashboard and an AI copilot constrained by backend policy. The flight controller remains responsible for flight stabilization, navigation and other flight-critical functions.",
+  "description": "DroneOps is a software control plane for drone operations, coordinating devices, missions and high-level commands over MQTT with an optional read-only AI assistant. The flight controller remains responsible for flight stabilization, navigation and other flight-critical functions.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

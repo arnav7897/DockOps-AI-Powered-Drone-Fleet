@@ -26,7 +26,7 @@ DroneOps manages high-level operational requests. Flight stabilization, navigati
 | Reliability | Stale-state detection, duplicate handling, persistent simulator state, and late-acknowledgement reconciliation protect the workflow across reconnects. |
 | Operational visibility | Query device events, mission and command audit records, alerts, and read-only device or mission replays. |
 | Access control | JWT authentication with admin and operator roles; device registration is restricted to admins. |
-| AI foundation | An internal, vendor-neutral read-only tool registry is implemented; no model, chat route or AI-driven state changes are available yet. |
+| Read-only AI assistant | Optional OpenAI-compatible chat endpoint uses bounded fleet, device, mission and event lookup tools. It cannot change state or dispatch commands. |
 
 **Built with:** Node.js, Express, MongoDB, Mongoose, MQTT.js, Eclipse Mosquitto, Zod and Docker Compose.
 
@@ -80,6 +80,8 @@ MQTT_USERNAME=backend
 MQTT_PASSWORD=your_backend_password
 ```
 
+The AI assistant is optional. To enable it, set `AI_API_BASE_URL` to an HTTPS OpenAI-compatible API base URL, plus `AI_API_KEY` and `AI_MODEL`. Keep the key only in `.env`; without all three values, `/api/v1/ai/chat` returns `503`.
+
 Start MongoDB and Mosquitto, load the environment, and run the API:
 
 ```sh
@@ -114,6 +116,19 @@ export ADMIN_TOKEN="$(node -e 'console.log(require("jsonwebtoken").sign({role:"a
 ```
 
 Operators and admins can manage missions and read operational data. Only admins can register devices. Treat the secret and token as credentials; the example token is for local development.
+
+### Ask the read-only assistant
+
+When the optional AI provider is configured, ask an operational question with the authenticated chat route:
+
+```sh
+curl -fsS -X POST http://127.0.0.1:3000/api/v1/ai/chat \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Which devices are offline or stale?"}'
+```
+
+The response includes the answer and source IDs returned by backend tools. Requests are limited to 10 per user per minute per API process. The assistant only reads data; it cannot create, assign, approve or dispatch missions. Use shared rate limiting before running multiple API instances.
 
 ### 2. Register a device
 
