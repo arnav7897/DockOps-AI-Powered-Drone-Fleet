@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 440" role="img" aria-labelledby="title desc">
+  <title id="title">DroneOps — Drone operations, in sync</title>
+  <desc id="desc">A dark blue operations banner with a stylized drone, connected telemetry nodes and a radar grid.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1729"/><stop offset="1" stop-color="#07101d"/></linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#49e4c1"/><stop offset="1" stop-color="#4ba8fc"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#1e8fa5" stop-opacity=".26"/><stop offset="1" stop-color="#0b1729" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M42 0H0V42" fill="none" stroke="#93c9d0" stroke-opacity=".1"/></pattern>
+    <clipPath id="frame"><rect width="1440" height="440" rx="18"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1440" height="440" fill="url(#bg)"/>
+    <rect x="700" width="740" height="440" fill="url(#grid)"/>
+    <ellipse cx="1120" cy="215" rx="390" ry="310" fill="url(#glow)"/>
+    <path d="M0 405H1440" stroke="#a7f4df" stroke-opacity=".12"/>
+    <path d="M66 62h12m8 0h12m8 0h12" stroke="#5ce8c8" stroke-width="3" stroke-linecap="round"/>
+    <text x="66" y="104" fill="#87a6b4" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="4">FLEET OPERATIONS / CONTROL PLANE</text>
+    <text x="62" y="193" fill="#f2fbfa" font-family="Arial, sans-serif" font-size="76" font-weight="700" letter-spacing="-3">Drone<tspan fill="#59e4c5">Ops</tspan></text>
+    <text x="66" y="242" fill="#d2e7e5" font-family="Arial, sans-serif" font-size="25" font-weight="500">Drone operations, in sync.</text>
+    <text x="66" y="282" fill="#8daab5" font-family="Arial, sans-serif" font-size="16">Connect devices. Coordinate missions. See what happens.</text>
+    <rect x="66" y="326" width="145" height="34" rx="17" fill="#43dfbd" fill-opacity=".11" stroke="#59e4c5" stroke-opacity=".35"/>
+    <circle cx="84" cy="343" r="4" fill="#59e4c5"/>
+    <text x="99" y="348" fill="#b9f5e6" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4">MQTT EVENTS</text>
+    <rect x="221" y="326" width="169" height="34" rx="17" fill="#73bfff" fill-opacity=".08" stroke="#73bfff" stroke-opacity=".26"/>
+    <text x="238" y="348" fill="#c4e3ff" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">MISSION CONTROL</text>
+    <g fill="none" stroke="#88e5d7" stroke-opacity=".19">
+      <circle cx="1110" cy="218" r="150"/><circle cx="1110" cy="218" r="113"/><circle cx="1110" cy="218" r="76"/>
+      <path d="M920 218h380M1110 28v380" stroke-dasharray="4 9"/>
+      <path d="M883 307l74-45 66 20 87-64 88 46 92-81" stroke="url(#beam)" stroke-opacity=".58" stroke-width="2"/>
+    </g>
+    <g fill="#6fead1"><circle cx="883" cy="307" r="4"/><circle cx="957" cy="262" r="4"/><circle cx="1023" cy="282" r="4"/><circle cx="1198" cy="264" r="4"/><circle cx="1290" cy="183" r="4"/></g>
+    <g transform="translate(1110 207)" stroke-linecap="round" stroke-linejoin="round">
+      <circle r="63" fill="#0c2031" stroke="#5fe6cd" stroke-opacity=".4"/>
+      <path d="M-19-17l-28-28M19-17l28-28M-19 17l-28 28M19 17l28 28" stroke="#98c9ca" stroke-width="6"/>
+      <g fill="#142b3a" stroke="#66e6cf" stroke-width="2"><ellipse cx="-48" cy="-45" rx="23" ry="7"/><ellipse cx="48" cy="-45" rx="23" ry="7"/><ellipse cx="-48" cy="45" rx="23" ry="7"/><ellipse cx="48" cy="45" rx="23" ry="7"/></g>
+      <path d="M0-30l23 14v32L0 30l-23-14v-32z" fill="#112d39" stroke="url(#beam)" stroke-width="2.5"/>
+      <path d="M0-16l10 6v20L0 16l-10-6v-20z" fill="#66e6cf" fill-opacity=".22" stroke="#8ff5dc"/>
+      <circle cy="0" r="3.5" fill="#b8fff1"/>
+    </g>
+    <g font-family="Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.4" fill="#80aab2">
+      <text x="1228" y="95">DEVICE STATE</text><text x="1258" y="326">EVENT STREAM</text><text x="888" y="151">MISSION</text>
+    </g>
+    <path d="M1218 101h-32l-29 35M1247 320h-40l-33-34M947 155h35l45 31" fill="none" stroke="#7accc2" stroke-opacity=".34"/>
+    <text x="66" y="423" fill="#668592" font-family="Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="2">SOFTWARE-FIRST  /  HARDWARE-OPTIONAL</text>
+    <text x="1270" y="423" fill="#668592" font-family="Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="2">DRONEOPS</text>
+  </g>
+</svg>

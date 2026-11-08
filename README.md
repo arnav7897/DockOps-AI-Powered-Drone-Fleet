@@ -1,52 +1,215 @@
-# DroneOps
+<p align="center">
+  <img src="docs/assets/droneops-banner.svg" alt="DroneOps — drone operations, in sync" width="100%">
+</p>
 
-DroneOps is a planned AI-native control plane for drone operations. It will coordinate devices, missions and high-level commands over MQTT, with an operator-facing dashboard and an AI copilot constrained by backend policy. The flight controller remains responsible for flight stabilization, navigation and other flight-critical functions.
+<p align="center"><strong>A software control plane for connected drone devices and mission workflows.</strong></p>
 
-**Status:** Foundation, MQTT status ingestion and mission orchestration are in progress. Operators can register and monitor devices, reserve eligible devices, and issue simulated mission requests with acknowledgement tracking. See [PRD.md](PRD.md) for the full MVP requirements.
+DroneOps brings device status, mission requests and operational events into one backend. An Express API coordinates with MQTT-connected devices, records state in MongoDB, and tracks command acknowledgements. A Node.js simulator lets you exercise the workflow without hardware.
 
-## Intended users
+DroneOps manages high-level operational requests. Flight stabilization, navigation and other flight-critical functions remain with the flight controller. The simulator and its acknowledgements are not evidence of physical flight or safety certification.
 
-- Fleet operators monitor devices and missions, investigate alerts, and approve or reject AI-proposed actions.
-- Developers run the backend, broker and simulators, inspect event flows, and exercise the test and evaluation suites.
+## Why DroneOps
 
-## Planned stack
+- **See the fleet:** Query the latest device state and identify offline or stale devices.
+- **Coordinate work:** Reserve an eligible device for a mission and track each request through acknowledgement.
+- **Investigate outcomes:** Search operational history, inspect alerts and replay recorded events into a diagnostic snapshot.
+- **Develop without hardware:** Run the same MQTT workflow with a software simulator.
 
-The PRD proposes Node.js and Express, MongoDB and Mongoose, MQTT.js and Mosquitto, Zod, JWT with role-based authorization, and a provider-agnostic LLM adapter. It suggests Docker Compose and GitHub Actions for local services and CI. Socket.IO versus server-sent events, Jest versus Vitest, and the optional ESP32 framework remain open choices.
+## Features
 
-## MVP roadmap
+| Capability | What is available |
+| --- | --- |
+| Device registry | Register devices with identities and capabilities; view connectivity, operational state and last-seen time. |
+| MQTT communication | Ingest validated status updates, use per-device topic permissions, and mark unexpected disconnects through session-bound last wills. |
+| Mission orchestration | Create and inspect missions, atomically reserve eligible devices, and request start, pause, resume, completion or cancellation. |
+| Command governance | Allowlisted requests carry unique IDs, correlation IDs and expiry times. Mission state changes only after a matching device acknowledgement. |
+| Reliability | Stale-state detection, duplicate handling, persistent simulator state, and late-acknowledgement reconciliation protect the workflow across reconnects. |
+| Operational visibility | Query device events, mission and command audit records, alerts, and read-only device or mission replays. |
+| Access control | JWT authentication with admin and operator roles; device registration is restricted to admins. |
 
-Phases 1–4 are in progress; later phases are planned. Each phase includes appropriate automated tests and updates to the operational documentation.
+**Built with:** Node.js, Express, MongoDB, Mongoose, MQTT.js, Eclipse Mosquitto, Zod and Docker Compose.
 
-1. **Software foundation:** Establish the Express API, MongoDB, Mosquitto, authentication and device registry. Done when devices can be registered and retrieved through validated, authorized requests and the local services are reproducible.
-2. **Event-driven communication:** Add MQTT ingestion, message validation, device snapshots and a Node.js simulator. Done when multiple simulators report validated state and that state is persisted and queryable.
-3. **Orchestration:** Implement mission transitions, eligibility, device reservation, governed commands and acknowledgements. Done when an eligible mission can be assigned and tracked without concurrent reservations or unrestricted commands.
-4. **Reliability:** Add stale-state detection, duplicate handling, reconnect reconciliation, searchable event timelines and scenario replay. Done when disconnects, retries, timeouts and replayed failures are observable and covered by tests.
-5. **AI-native layer:** Add grounded fleet queries, mission proposals, operator approval and evidence-based fault explanations. Done when backend policy and fresh eligibility checks govern dispatch and AI-generated hypotheses are distinguished from facts.
-6. **Evaluation harness:** Version evaluation data, prompts and tool schemas; retain traces and add CI gates. Done when deterministic tests and critical AI policy, schema and approval checks run in CI.
-7. **Optional ESP32 demo:** Add a minimal authenticated MQTT client for heartbeat, simulated status and constrained command acknowledgements. Done when it demonstrates the contract without being required for the software MVP.
-8. **Demo and documentation:** Document the implemented architecture, MQTT contract, API and test results, and record a walkthrough. Done when the software-only MVP and its failure scenarios can be demonstrated from the documented steps.
+## Installation
 
-The MVP excludes autopilot development, autonomous navigation, unrestricted model-issued commands and claims of flight readiness or safety certification.
+### Prerequisites
 
-## Local development
+- Node.js 24 and npm
+- Docker with Docker Compose
+- Bash and `curl`
 
-Use Node.js 24, Docker Compose and a strong, private JWT secret. Install dependencies with `npm ci`. The database and broker are bound to localhost for development; MongoDB has no authentication in this local configuration and must not be exposed to a network.
+The supplied MongoDB and MQTT ports bind to `127.0.0.1`. The MongoDB configuration has no authentication and is intended for local development only.
 
-Before starting Compose, create the broker password file interactively (replace `backend` with the intended local username):
+### 1. Install dependencies
 
 ```sh
-docker run --rm -it -v "$PWD/mosquitto/config:/mosquitto/config" --entrypoint mosquitto_passwd eclipse-mosquitto:2 -c /mosquitto/config/passwd backend
-docker compose up -d
+git clone https://github.com/arnav7897/DockOps-AI-Powered-Drone-Fleet.git
+cd DockOps-AI-Powered-Drone-Fleet
+npm ci
 ```
 
-Copy `.env.example` to `.env`, replace the example secret, and export the variables in your shell before running `npm start`. The API requires an externally issued HS256 JWT with issuer `droneops`, audience `droneops-api`, a subject, an expiry and role `admin` or `operator`. Admins can register devices with `POST /api/v1/devices` using `deviceId`, `name` and a `capabilities` string array; either role can call `GET /api/v1/devices` and `GET /api/v1/devices/:id/events` (most recent 100). `GET /api/v1/health` is public. Token issuance and user management are not implemented. Run `npm test` for API tests.
+### 2. Create broker accounts
 
-Authenticated operators and admins may create a draft with `POST /api/v1/missions` using `{ "type": "survey", "parameters": {} }`, inspect it with `GET /api/v1/missions/:id`, and reserve a device with `POST /api/v1/missions/:id/assign` using `{ "deviceId": "drone-1" }`. The device must be online, idle, unreserved, report the mission type as a capability, and have reported status within the configurable `STALE_AFTER_MS` (default 60 seconds). Device lists expose a `stale` flag. Cancel a draft or unsent reservation with `POST /api/v1/missions/:id/cancel`. Assignment and cancellation use MongoDB transactions, requiring the configured replica set; wait for the Compose MongoDB health check before starting the API. For the database integration tests, set `TEST_MONGODB_URI` to a dedicated test replica set URI and run `npm test`; the tests create and drop temporary databases.
+Create the `backend` account and a simulator account named `drone-1`. Each command prompts for a password. The `-c` option creates a new password file; do not use it if you already have one, because it replaces the file. For an existing file, omit `-c` when adding or updating `backend`.
 
-With the broker connected and subscriptions ready, `POST /api/v1/missions/:id/start`, `/pause`, `/resume`, `/complete`, and `/cancel` request the corresponding valid transition. These endpoints return a command with HTTP 202; poll `GET /api/v1/commands/:id` and the mission endpoint for its outcome. The API rechecks authorization expiry and device eligibility immediately before publication, and changes mission state only after a matching device acknowledgement. Requests have unique IDs, a correlation ID and an expiry no later than 30 seconds or the operator token's expiry. A rejected request leaves the mission in its prior state. A timeout or uncertain publish retains the device reservation and blocks further commands. A matching late acknowledgement can reconcile a timeout if the authenticated device reports a timestamp within the command's validity window. This relies on the device's clock and reported outcome; acknowledgements are not proof of physical flight or completion. If no acknowledgement arrives, manual recovery is not yet implemented.
+```sh
+docker run --rm -it -v "$PWD/mosquitto/config:/mosquitto/config" \
+  --entrypoint mosquitto_passwd eclipse-mosquitto:2 \
+  -c /mosquitto/config/passwd backend
 
-To enable MQTT, set and export `MQTT_URL`, `MQTT_USERNAME=backend`, and `MQTT_PASSWORD` before starting the API. Create each simulator's broker account using `docker run --rm -it -v "$PWD/mosquitto/config:/mosquitto/config" --entrypoint mosquitto_passwd eclipse-mosquitto:2 /mosquitto/config/passwd DEVICE_ID`, replacing `DEVICE_ID` with its registered ID; restart the broker after changes. Export `DEVICE_ID`, matching `MQTT_USERNAME`, `MQTT_PASSWORD`, and `MQTT_URL=mqtt://127.0.0.1:1883`, then run `node simulator/device.js` in a separate shell. Reserve `backend` for the API and never assign it to a device. Avoid placing real passwords in shell history. The backend uses a persistent MQTT session (`MQTT_CLIENT_ID`, default `droneops-backend`); run one backend per client ID. Its QoS 1 messages are acknowledged only after processing, and the Compose broker persists sessions in a named volume. Each simulator connection uses a new session ID and a non-retained last will. A will affects only the current session; retained status and disconnect notices are ignored. The simulator persists mission state and acknowledgements under the Git-ignored `.simulator-state/` directory (override with `DEVICE_STATE_DIR`) and resends acknowledgements on reconnect and heartbeats. Run one simulator per device with a persistent state directory. It fails closed after retaining 1,000 commands because a backend receipt protocol for safe pruning does not yet exist.
+docker run --rm -it -v "$PWD/mosquitto/config:/mosquitto/config" \
+  --entrypoint mosquitto_passwd eclipse-mosquitto:2 \
+  /mosquitto/config/passwd drone-1
+```
 
-Authenticated operators can query `GET /api/v1/alerts` for offline or stale devices, timed-out commands, and recorded command failures or rejections. `GET /api/v1/events` returns up to 100 recent device events, command snapshots, and mission/command audit events; optional `deviceId`, `missionId`, `correlationId`, and `kind=device|command|audit` filters narrow the results. Audit records are created transactionally for new mission and command transitions and are not backfilled for earlier activity. `GET /api/v1/devices/:id/replay` replays up to 1,000 recorded device events through validation into an isolated in-memory snapshot. `GET /api/v1/missions/:id/replay` reconstructs mission state from audit records and marks incomplete histories; neither endpoint publishes commands or changes stored state. Replay is diagnostic, not evidence of physical device state.
+Device usernames must match their registered device IDs. The `backend` identity is reserved for the API. The password file is Git-ignored.
 
-To exercise the broker integration test as well as the database tests, set `TEST_MQTT_URL`, `TEST_MQTT_BACKEND_PASSWORD`, and `TEST_MQTT_DEVICE_PASSWORD` for a dedicated test broker with `backend` and `drone1` accounts and the supplied ACL. Tests start disposable API and simulator processes and use a temporary test database and state directory.
+### 3. Configure and start
+
+Create `.env` from the example if it does not already exist:
+
+```sh
+test -e .env || cp .env.example .env
+```
+
+Edit `.env` to set a private `JWT_SECRET` of at least 32 characters, then uncomment and set the MQTT values below. Use the password chosen for the `backend` broker account. Keep `.env` private and use shell-safe values when sourcing it.
+
+```dotenv
+MQTT_URL=mqtt://127.0.0.1:1883
+MQTT_USERNAME=backend
+MQTT_PASSWORD=your_backend_password
+```
+
+Start MongoDB and Mosquitto, load the environment, and run the API:
+
+```sh
+docker compose up -d --wait
+set -a
+. ./.env
+set +a
+npm start
+```
+
+Leave the API running. In another terminal, check the public health endpoint:
+
+```sh
+curl http://127.0.0.1:3000/api/v1/health
+```
+
+The default API port is `3000`. The Compose MongoDB service runs as a single-node replica set because reservation and audit operations use transactions.
+
+## Usage guide
+
+The following walkthrough uses `drone-1` and a `survey` mission. Run the API commands from the project directory in a terminal where `.env` has been loaded as above.
+
+### 1. Create a local development token
+
+DroneOps verifies externally issued HS256 tokens; it does not provide user management or a token-issuance endpoint. For local testing, create a short-lived admin token with the configured secret:
+
+```sh
+set -a
+. ./.env
+set +a
+export ADMIN_TOKEN="$(node -e 'console.log(require("jsonwebtoken").sign({role:"admin"}, process.env.JWT_SECRET, {algorithm:"HS256", subject:"local-admin", issuer:"droneops", audience:"droneops-api", expiresIn:"1h"}))')"
+```
+
+Operators and admins can manage missions and read operational data. Only admins can register devices. Treat the secret and token as credentials; the example token is for local development.
+
+### 2. Register a device
+
+```sh
+curl -fsS -X POST http://127.0.0.1:3000/api/v1/devices \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"drone-1","name":"Survey simulator","capabilities":["survey"]}'
+```
+
+### 3. Start the simulator
+
+In a separate terminal, change to the project directory and enter the simulator account password when prompted:
+
+```sh
+read -rsp 'Simulator MQTT password: ' DEVICE_PASSWORD; echo
+DEVICE_ID=drone-1 MQTT_USERNAME=drone-1 MQTT_PASSWORD="$DEVICE_PASSWORD" \
+  MQTT_URL=mqtt://127.0.0.1:1883 node simulator/device.js
+```
+
+Leave it running. It publishes status and accepts allowlisted mission requests. Its state and acknowledgements are stored in the Git-ignored `.simulator-state/` directory; set `DEVICE_STATE_DIR` to use another persistent directory. Run one simulator per device.
+
+Back in the API-command terminal, confirm the device is online and not stale:
+
+```sh
+curl -fsS http://127.0.0.1:3000/api/v1/devices \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+### 4. Create and run a mission
+
+Create a mission and capture its ID:
+
+```sh
+MISSION_ID="$(curl -fsS -X POST http://127.0.0.1:3000/api/v1/missions \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"survey","parameters":{}}' \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).missionId')"
+```
+
+Assign the simulator. Its reported capability must match the mission type, and its latest state must be online, idle, unreserved and fresh:
+
+```sh
+curl -fsS -X POST "http://127.0.0.1:3000/api/v1/missions/$MISSION_ID/assign" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"drone-1"}'
+```
+
+Request a start and capture the command ID:
+
+```sh
+COMMAND_ID="$(curl -fsS -X POST "http://127.0.0.1:3000/api/v1/missions/$MISSION_ID/start" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).commandId')"
+```
+
+Inspect the command and mission. If the command is still pending, retry the query after the simulator responds:
+
+```sh
+curl -fsS "http://127.0.0.1:3000/api/v1/commands/$COMMAND_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl -fsS "http://127.0.0.1:3000/api/v1/missions/$MISSION_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Use `POST /api/v1/missions/:id/pause`, `/resume`, `/complete` or `/cancel` for the corresponding transition. A command request returns HTTP `202`; the mission changes state after a matching acknowledgement. A draft or undispatched reservation can be cancelled directly.
+
+### 5. Inspect operations
+
+```sh
+curl -fsS http://127.0.0.1:3000/api/v1/alerts \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl -fsS "http://127.0.0.1:3000/api/v1/events?missionId=$MISSION_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+curl -fsS "http://127.0.0.1:3000/api/v1/missions/$MISSION_ID/replay" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Event queries accept `deviceId`, `missionId`, `correlationId` and `kind=device|command|audit` filters and return up to 100 records. Device history and replay are available at `/api/v1/devices/:id/events` and `/api/v1/devices/:id/replay`. Replays read up to 1,000 events into an isolated diagnostic snapshot; they do not send commands or change stored state. Mission replays flag incomplete audit histories.
+
+## Operational notes
+
+- `STALE_AFTER_MS` controls the freshness threshold and defaults to 60,000 ms. Each simulator sends a heartbeat every 30 seconds.
+- A timed-out or uncertain command keeps its device reserved. A matching late acknowledgement can reconcile it when the authenticated device reports a time within the command's validity window; this relies on the device clock. There is no manual recovery workflow when no acknowledgement arrives.
+- The simulator retains up to 1,000 acknowledgements and fails closed at that limit. Its persisted state and broker account are for simulation, not flight control.
+- The backend uses a persistent MQTT session. Run one backend per `MQTT_CLIENT_ID`; the default is `droneops-backend`. The Compose broker stores session data in a named volume.
+- Audit entries cover transitions recorded after audit support was added; earlier activity is not backfilled.
+
+## Testing
+
+```sh
+npm test
+```
+
+The default run skips tests requiring external services. To include MongoDB integration tests, set `TEST_MONGODB_URI` to a dedicated replica set URI. To also run the broker test, set `TEST_MQTT_URL`, `TEST_MQTT_BACKEND_PASSWORD` and `TEST_MQTT_DEVICE_PASSWORD` for a dedicated broker with `backend` and `drone1` accounts using the supplied ACL. These tests create and drop temporary databases and use a temporary simulator state directory.
