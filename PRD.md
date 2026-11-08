@@ -64,7 +64,9 @@ DroneOps addresses this through an event-driven backend, explicit state machines
 
 ### 7.3 Constrained Agent Tools
 
-Expose narrow tools such as: - `getFleetSnapshot()` - `getDeviceStatus(deviceId)` - `getMissionStatus(missionId)` - `getRecentEvents(filters)` - `checkDeviceEligibility(requirements)` - `proposeMission(input)` - `requestApproval(proposalId)` - `dispatchApprovedRequest(proposalId, approvalId)`
+Expose narrow tools such as: - `getFleetSnapshot()` - `getDeviceStatus(deviceId)` - `getMissionStatus(missionId)` - `getRecentEvents(filters)` - `checkDeviceEligibility(requirements)` - `proposeMission(input)`.
+
+Approval and dispatch are backend operations initiated only by explicit operator API requests. They are not model-callable tools. Deterministic backend policy assigns the risk tier; the model cannot mark an action safe or bypass approval.
 
 The model receives neither MQTT credentials nor unrestricted broker access. The backend remains the authority for permissions, deterministic risk classification, validation and dispatch. High-risk or unclassified actions require explicit operator approval. Approval is not a permanent authorization: eligibility and policy must be checked again at dispatch time. Flight-critical functions remain outside this platform and can never be an AI action.
 

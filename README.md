@@ -26,7 +26,7 @@ DroneOps manages high-level operational requests. Flight stabilization, navigati
 | Reliability | Stale-state detection, duplicate handling, persistent simulator state, and late-acknowledgement reconciliation protect the workflow across reconnects. |
 | Operational visibility | Query device events, mission and command audit records, alerts, and read-only device or mission replays. |
 | Access control | JWT authentication with admin and operator roles; device registration is restricted to admins. |
-| Read-only AI assistant | Optional OpenAI-compatible chat endpoint uses bounded fleet, device, mission and event lookup tools. It cannot change state or dispatch commands. |
+| AI operations assistant | Optional OpenAI-compatible chat endpoint uses bounded backend tools. It can create only an unassigned draft automatically; assignment and mission commands need human approval and backend revalidation. |
 
 **Built with:** Node.js, Express, MongoDB, Mongoose, MQTT.js, Eclipse Mosquitto, Zod and Docker Compose.
 
@@ -128,7 +128,11 @@ curl -fsS -X POST http://127.0.0.1:3000/api/v1/ai/chat \
   -d '{"message":"Which devices are offline or stale?"}'
 ```
 
-The response includes the answer and source IDs returned by backend tools. Requests are limited to 10 per user per minute per API process. The assistant only reads data; it cannot create, assign, approve or dispatch missions. Use shared rate limiting before running multiple API instances.
+The response includes the answer and source IDs returned by backend tools. Requests are limited to 10 per user per minute per API process. If you explicitly request a draft mission, the assistant can create an unassigned draft. Assignment and mission commands return a high-risk proposal; the assistant cannot approve or dispatch it.
+
+For a high-risk proposal, inspect it with `GET /api/v1/ai/proposals/:id`, then have an operator approve it with `POST /api/v1/ai/proposals/:id/approve` and an empty JSON object. The response contains a one-use `approvalId` valid for up to 60 seconds. Send that ID to `POST /api/v1/ai/proposals/:id/dispatch`; the backend rechecks authorization, mission state and device eligibility. Use shared rate limiting before running multiple API instances.
+
+If the API stops while a proposal is `dispatching`, inspect the mission and command records before taking any recovery action; the consumed approval cannot be replayed.
 
 ### 2. Register a device
 
