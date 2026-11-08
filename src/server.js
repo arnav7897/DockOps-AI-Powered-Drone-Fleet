@@ -6,11 +6,15 @@ const { createMissionModel, createMissionStore } = require('./missions');
 const { createCommandModel, createCommandService } = require('./commands');
 const { createHistory } = require('./history');
 const { createAuditModel } = require('./audit');
+const { createAiTools } = require('./ai-tools');
+const { createAssistant } = require('./assistant');
+const { createConfiguredModel } = require('./llm');
 
 async function main() {
   const { MONGODB_URI, JWT_SECRET } = process.env;
   const port = Number(process.env.PORT || 3000);
   const staleAfterMs = Number(process.env.STALE_AFTER_MS || 60000);
+  const complete = createConfiguredModel();
   if (!MONGODB_URI || !JWT_SECRET || JWT_SECRET.length < 32 || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isSafeInteger(staleAfterMs) || staleAfterMs < 1000) {
     throw new Error('Set MONGODB_URI, JWT_SECRET (at least 32 characters), a valid PORT and STALE_AFTER_MS (at least 1000)');
   }
@@ -119,7 +123,8 @@ async function main() {
   // Expire pending commands even if the broker is temporarily disconnected.
   commands ||= createCommandService({ Command, Mission, Device, connection: mongoose.connection, broker, staleAfterMs, Audit });
   const timer = setInterval(() => commands.expire().catch((err) => console.error('Command expiry failed:', err.message)), 1000);
-  const server = createApp({ devices, missions, commands, history, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
+  const assistant = complete ? createAssistant({ tools: createAiTools({ devices, missions, history }), complete }) : null;
+  const server = createApp({ devices, missions, commands, history, assistant, jwtSecret: JWT_SECRET }).listen(port, () => console.log(`Listening on ${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { clearInterval(timer); if (broker) broker.end(true); mongoose.disconnect().then(() => process.exit(0)); }));
 }
 

@@ -10,8 +10,9 @@ const deviceInput = z.object({
   capabilities: z.array(z.string().trim().min(1).max(100)).max(50),
 }).strict();
 
-function createApp({ devices, missions, commands, history, jwtSecret }) {
+function createApp({ devices, missions, commands, history, assistant, jwtSecret }) {
   const app = express();
+  const aiRequestWindows = new Map();
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
   app.use('/api/v1', (req, res, next) => {
@@ -24,6 +25,24 @@ function createApp({ devices, missions, commands, history, jwtSecret }) {
       next();
     } catch {
       res.status(401).json({ error: 'Unauthorized' });
+    }
+  });
+  app.post('/api/v1/ai/chat', async (req, res) => {
+    if (!assistant) return res.status(503).json({ error: 'AI assistant is not configured' });
+    const input = z.object({ message: z.string().trim().min(1).max(2000) }).strict().safeParse(req.body);
+    if (!input.success) return res.status(400).json({ error: 'Invalid chat request' });
+    const now = Date.now();
+    for (const [subject, window] of aiRequestWindows) if (window.expiresAt <= now) aiRequestWindows.delete(subject);
+    const currentWindow = aiRequestWindows.get(req.user.sub);
+    if (!currentWindow && aiRequestWindows.size >= 10000) return res.status(429).json({ error: 'AI request limit reached; retry later' });
+    const window = currentWindow || { count: 0, expiresAt: now + 60000 };
+    if (window.count >= 10) return res.set('Retry-After', '60').status(429).json({ error: 'AI request limit reached; retry later' });
+    window.count++;
+    aiRequestWindows.set(req.user.sub, window);
+    try {
+      return res.json(await assistant.ask(input.data.message));
+    } catch {
+      return res.status(502).json({ error: 'AI assistant is temporarily unavailable' });
     }
   });
   app.post('/api/v1/devices', async (req, res, next) => {
